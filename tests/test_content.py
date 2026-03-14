@@ -1,9 +1,11 @@
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from app import create_app
 from app.content_service import ContentGenerationError, OllamaConfig, generate_content
+from app.user_progress import UserProgressStore
 
 
 class FakeResponse:
@@ -59,6 +61,7 @@ class ContentRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), mock_generate_content.return_value)
         mock_generate_content.assert_called_once_with(
+            userid=7,
             scene="shopping",
             origin_lang="zh-CN",
             country="China",
@@ -80,6 +83,13 @@ class ContentRouteTests(unittest.TestCase):
 
 
 class ContentServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.progress_path = os.path.join(self.temp_dir.name, "user_progress.json")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
     def test_ollama_config_uses_defaults(self):
         with patch.dict(os.environ, {}, clear=True):
             config = OllamaConfig.from_env()
@@ -135,10 +145,11 @@ class ContentServiceTests(unittest.TestCase):
                     "OLLAMA_MODEL": "gpt-oss:120b-cloud",
                     "OLLAMA_TIMEOUT_SECONDS": "45",
                     "OLLAMA_MAX_RETRIES": "2",
+                    "YAN_USER_PROGRESS_FILE": self.progress_path,
                 },
                 clear=True,
             ):
-                payload = generate_content("shopping", "zh-CN", "China")
+                payload = generate_content(7, "shopping", "zh-CN", "China")
 
         self.assertEqual(len(session.calls), 2)
         self.assertIn("previous response was invalid", session.calls[1]["json"]["messages"][1]["content"].lower())
@@ -154,9 +165,13 @@ class ContentServiceTests(unittest.TestCase):
         )
 
         with patch("app.content_service.requests", session):
-            with patch.dict(os.environ, {"OLLAMA_MAX_RETRIES": "1"}, clear=True):
+            with patch.dict(
+                os.environ,
+                {"OLLAMA_MAX_RETRIES": "1", "YAN_USER_PROGRESS_FILE": self.progress_path},
+                clear=True,
+            ):
                 with self.assertRaises(ContentGenerationError):
-                    generate_content("shopping", "zh-CN", "China")
+                    generate_content(7, "shopping", "zh-CN", "China")
 
         self.assertEqual(len(session.calls), 2)
 
@@ -196,7 +211,8 @@ class ContentServiceTests(unittest.TestCase):
         )
 
         with patch("app.content_service.requests", session):
-            payload = generate_content("airport", "es", "Mexico")
+            with patch.dict(os.environ, {"YAN_USER_PROGRESS_FILE": self.progress_path}, clear=True):
+                payload = generate_content(7, "airport", "es", "Mexico")
 
         self.assertEqual(len(payload["p1"]), 6)
         self.assertEqual(len(payload["p2"]["sentences"]), 10)
@@ -247,10 +263,93 @@ class ContentServiceTests(unittest.TestCase):
         )
 
         with patch("app.content_service.requests", session):
-            payload = generate_content("shopping", "fr", "Canada")
+            with patch.dict(os.environ, {"YAN_USER_PROGRESS_FILE": self.progress_path}, clear=True):
+                payload = generate_content(7, "shopping", "fr", "Canada")
 
         self.assertEqual(len(session.calls), 2)
         self.assertEqual(len(payload["p2"]["sentences"]), len(payload["p2"]["tsentences"]))
+
+    def test_generate_content_includes_user_learning_history_in_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store_path = os.path.join(tmp_dir, "user_progress.json")
+            store = UserProgressStore(store_path)
+            store.record_generated_phonics(7, [["/sh/", "sh", "shop"], ["/ch/", "ch", "chair"]])
+            store.record_generated_phonics(7, [["/sh/", "sh", "shirt"]])
+
+            session = FakeSession(
+                [
+                    FakeResponse(
+                        {
+                            "message": {
+                                "content": """
+                                {
+                                  "p1": [
+                                    ["/th/", "th", "think"],
+                                    ["/wh/", "wh", "wheel"],
+                                    ["/br/", "br", "bread"]
+                                  ],
+                                  "p2": {
+                                    "sentences": ["s1", "s2", "s3", "s4", "s5"],
+                                    "tsentences": ["t1", "t2", "t3", "t4", "t5"]
+                                  }
+                                }
+                                """
+                            }
+                        }
+                    )
+                ]
+            )
+
+            with patch("app.content_service.requests", session):
+                with patch.dict(os.environ, {"YAN_USER_PROGRESS_FILE": store_path}, clear=True):
+                    generate_content(7, "shopping", "zh-CN", "China")
+
+        prompt = session.calls[0]["json"]["messages"][1]["content"]
+        self.assertIn("Previously learned phonics for this user", prompt)
+        self.assertIn("[/sh/, sh] seen 2 times", prompt)
+        self.assertIn("[/ch/, ch] seen 1 times", prompt)
+
+    def test_generate_content_records_generated_phonics_per_user(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store_path = os.path.join(tmp_dir, "user_progress.json")
+            session = FakeSession(
+                [
+                    FakeResponse(
+                        {
+                            "message": {
+                                "content": """
+                                {
+                                  "p1": [
+                                    ["/sh/", "sh", "shop"],
+                                    ["/ch/", "ch", "chair"],
+                                    ["/th/", "th", "think"]
+                                  ],
+                                  "p2": {
+                                    "sentences": ["s1", "s2", "s3", "s4", "s5"],
+                                    "tsentences": ["t1", "t2", "t3", "t4", "t5"]
+                                  }
+                                }
+                                """
+                            }
+                        }
+                    )
+                ]
+            )
+
+            with patch("app.content_service.requests", session):
+                with patch.dict(os.environ, {"YAN_USER_PROGRESS_FILE": store_path}, clear=True):
+                    generate_content(99, "shopping", "zh-CN", "China")
+
+            learned_items = UserProgressStore(store_path).get_learned_phonics(99)
+
+        self.assertEqual(
+            [(item.ipa, item.letter_combo, item.count) for item in learned_items],
+            [
+                ("/ch/", "ch", 1),
+                ("/sh/", "sh", 1),
+                ("/th/", "th", 1),
+            ],
+        )
 
 
 if __name__ == "__main__":

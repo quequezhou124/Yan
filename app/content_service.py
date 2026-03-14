@@ -5,6 +5,8 @@ from typing import Any
 
 import requests
 
+from .user_progress import LearnedPhonics, UserProgressStore
+
 
 MIN_P1_ITEMS = 3
 MAX_P1_ITEMS = 6
@@ -49,8 +51,10 @@ class OllamaConfig:
         )
 
 
-def generate_content(scene: str, origin_lang: str, country: str) -> dict[str, Any]:
+def generate_content(userid: int, scene: str, origin_lang: str, country: str) -> dict[str, Any]:
     config = OllamaConfig.from_env()
+    progress_store = UserProgressStore()
+    learned_phonics = progress_store.get_learned_phonics(userid)
     repair_reason: str | None = None
     last_validation_error: ContentValidationError | None = None
 
@@ -58,20 +62,26 @@ def generate_content(scene: str, origin_lang: str, country: str) -> dict[str, An
         raw_content = _call_ollama(
             config=config,
             user_prompt=_build_user_prompt(
+                userid=userid,
                 scene=scene,
                 origin_lang=origin_lang,
                 country=country,
+                learned_phonics=learned_phonics,
                 repair_reason=repair_reason,
             ),
         )
 
         try:
-            return _validate_and_normalize_payload(raw_content)
+            payload = _validate_and_normalize_payload(raw_content)
         except ContentValidationError as exc:
             last_validation_error = exc
             if attempt == config.max_retries:
                 break
             repair_reason = str(exc)
+            continue
+
+        progress_store.record_generated_phonics(userid, payload["p1"])
+        return payload
 
     raise ContentGenerationError("Model did not return valid content JSON") from last_validation_error
 
@@ -89,8 +99,16 @@ def _read_int_env(name: str, default: int) -> int:
     return value if value >= 0 else default
 
 
-def _build_user_prompt(scene: str, origin_lang: str, country: str, repair_reason: str | None) -> str:
+def _build_user_prompt(
+    userid: int,
+    scene: str,
+    origin_lang: str,
+    country: str,
+    learned_phonics: list[LearnedPhonics],
+    repair_reason: str | None,
+) -> str:
     prompt = f"""Generate scene-learning content for this request:
+- user id: {userid}
 - scene: {scene}
 - source sentence language: English
 - translation language: {origin_lang}
@@ -103,6 +121,7 @@ Requirements:
 4. Reuse some of the generated example words or related vocabulary in the English sentences where natural.
 5. Translate each English sentence into {origin_lang}, localized for {country}.
 6. The sentence arrays must stay aligned by index.
+7. Prefer new phonics items for this user. Items the user has learned before should appear less often.
 
 Return exactly this JSON shape:
 {{
@@ -116,6 +135,10 @@ Return exactly this JSON shape:
   }}
 }}"""
 
+    learned_guidance = _build_learned_phonics_guidance(learned_phonics)
+    if learned_guidance:
+        prompt = f"{prompt}\n\n{learned_guidance}"
+
     if repair_reason:
         prompt = (
             f"{prompt}\n\n"
@@ -124,6 +147,23 @@ Return exactly this JSON shape:
         )
 
     return prompt
+
+
+def _build_learned_phonics_guidance(learned_phonics: list[LearnedPhonics]) -> str:
+    if not learned_phonics:
+        return "This user has not learned any phonics items yet, so you can freely choose scene-relevant beginner-friendly items."
+
+    repeated_items = []
+    for item in learned_phonics[:12]:
+        repeated_items.append(f'- [{item.ipa}, {item.letter_combo}] seen {item.count} times')
+
+    return "\n".join(
+        [
+            "Previously learned phonics for this user. Lower their reuse probability and prefer new items when possible:",
+            *repeated_items,
+            "Use an already-seen phonics item only when it is strongly relevant to the scene or needed for natural coverage.",
+        ]
+    )
 
 
 def _call_ollama(config: OllamaConfig, user_prompt: str) -> str:

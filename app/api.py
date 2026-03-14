@@ -21,10 +21,8 @@ def echo():
 
 @api_v1.get("/content/<int:userid>/<string:scene>/<string:origin_lang>/<string:country>")
 def content(userid: int, scene: str, origin_lang: str, country: str):
-    del userid
-
     try:
-        payload = generate_content(scene=scene, origin_lang=origin_lang, country=country)
+        payload = generate_content(userid=userid, scene=scene, origin_lang=origin_lang, country=country)
     except ContentGenerationError:
         current_app.logger.exception("Failed to generate content from Ollama")
         return (
