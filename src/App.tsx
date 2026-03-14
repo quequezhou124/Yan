@@ -1,16 +1,16 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import './App.css'
 import yanLogo from './assets/yan.png'
 import gooseLogo from './assets/goose.png'
 import {
-  buildPracticePreview,
   defaultSelection,
   destinationOptions,
   sceneOptions,
   worldCountryOptions,
   worldLanguageOptions,
   type PracticeSelection,
+  type PracticePreview,
   type SearchableOption,
 } from './practiceData'
 
@@ -18,6 +18,74 @@ const PAGE_TWO_STORAGE_KEY = 'yan-page-two-payload'
 const PAGE_TWO_CONTEXT_KEY = 'yan-page-two-context'
 const USER_ID_STORAGE_KEY = 'yan-user-id'
 const FIVE_DIGIT_USER_ID_PATTERN = /^\d{5}$/
+const CONTENT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+const CONTENT_SET_ID = '1'
+const sceneApiPathMap = {
+  Supermarket: 'shopping',
+  Airport: 'airport',
+  IRCC: 'ircc',
+  Neighbourhood: 'neighbourhood',
+} as const
+
+type PracticePayload = PracticePreview['payload']
+
+function createEmptyPreview(): PracticePreview {
+  return {
+    phonetics: [],
+    payload: {
+      p1: [],
+      p2: {
+        sentences: [],
+        tsentences: [],
+      },
+    },
+    isUnderConstruction: false,
+    isReady: false,
+  }
+}
+
+function isPracticePayload(value: unknown): value is PracticePayload {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const payload = value as PracticePayload
+
+  return (
+    Array.isArray(payload.p1) &&
+    payload.p1.every(
+      (entry) =>
+        Array.isArray(entry) &&
+        entry.length === 3 &&
+        entry.every((item) => typeof item === 'string'),
+    ) &&
+    Array.isArray(payload.p2?.sentences) &&
+    payload.p2.sentences.every((sentence) => typeof sentence === 'string') &&
+    Array.isArray(payload.p2?.tsentences) &&
+    payload.p2.tsentences.every((sentence) => typeof sentence === 'string')
+  )
+}
+
+function createPreviewFromPayload(payload: PracticePayload): PracticePreview {
+  return {
+    phonetics: payload.p1.map(([symbol, writing, example]) => ({
+      symbol,
+      writing,
+      example,
+    })),
+    payload,
+    isUnderConstruction: false,
+    isReady: payload.p1.length > 0 && payload.p2.sentences.length > 0,
+  }
+}
+
+function buildContentApiUrl(scene: string, language: string, country: string) {
+  return `${CONTENT_API_BASE_URL}/content/${encodeURIComponent(
+    CONTENT_SET_ID,
+  )}/${encodeURIComponent(scene)}/${encodeURIComponent(
+    language,
+  )}/${encodeURIComponent(country)}`
+}
 
 function normalizeLookup(value: string) {
   return value
@@ -75,6 +143,7 @@ type SearchFieldProps = {
   options: SearchableOption[]
   placeholder: string
   value: string
+  disabled?: boolean
   onChange: (value: string) => void
 }
 
@@ -84,21 +153,31 @@ function SearchField({
   options,
   placeholder,
   value,
+  disabled = false,
   onChange,
 }: SearchFieldProps) {
   const [isOpen, setIsOpen] = useState(false)
   const normalizedValue = normalizeLookup(value)
   const suggestions =
-    isOpen && normalizedValue
+    !disabled && isOpen && normalizedValue
       ? options.filter((option) => option.searchText.includes(normalizedValue)).slice(0, 8)
       : []
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    if (disabled) {
+      return
+    }
+
     onChange(event.target.value)
     setIsOpen(true)
   }
 
   function handleBlur() {
+    if (disabled) {
+      setIsOpen(false)
+      return
+    }
+
     const exactMatch = findExactMatch(options, value)
 
     if (exactMatch && exactMatch.value !== value) {
@@ -126,8 +205,13 @@ function SearchField({
           className="text-input"
           type="text"
           value={value}
+          disabled={disabled}
           onChange={handleChange}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            if (!disabled) {
+              setIsOpen(true)
+            }
+          }}
           onBlur={handleBlur}
           placeholder={placeholder}
           autoComplete="off"
@@ -143,7 +227,7 @@ function SearchField({
               return (
                 <button
                   className="suggestion-item"
-                  key={`${option.value}-${helper}`}
+                  key={`${option.apiValue}-${option.value}-${helper}`}
                   type="button"
                   onMouseDown={(event) => {
                     event.preventDefault()
@@ -165,15 +249,24 @@ function SearchField({
 function App() {
   const [userId] = useState(getCachedUserId)
   const [selection, setSelection] = useState(defaultSelection)
+  const [preview, setPreview] = useState<PracticePreview>(createEmptyPreview)
   const [pageTwoMessage, setPageTwoMessage] = useState('')
+  const [generateMessage, setGenerateMessage] = useState('')
+  const [generateError, setGenerateError] = useState('')
   const [hasGenerated, setHasGenerated] = useState(false)
-
-  const preview = buildPracticePreview(selection)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const requestVersionRef = useRef(0)
   const selectedCountry = findExactMatch(worldCountryOptions, selection.originCountry)
   const selectedLanguage = findExactMatch(
     worldLanguageOptions,
     selection.motherLanguage,
   )
+  const selectedSceneApiPath = selection.scene
+    ? sceneApiPathMap[selection.scene as keyof typeof sceneApiPathMap] ?? null
+    : null
+  const isSceneUnderConstruction =
+    selection.scene === 'Customized' ||
+    Boolean(selection.scene && !selectedSceneApiPath)
   const allFieldsFilled = Boolean(
     userId &&
       selection.destination &&
@@ -181,32 +274,95 @@ function App() {
       selectedCountry &&
       selectedLanguage,
   )
-  const canGenerate = allFieldsFilled && !preview.isUnderConstruction
-  const canOpenPageTwo = allFieldsFilled && !preview.isUnderConstruction
+  const canGenerate = allFieldsFilled && !isSceneUnderConstruction && !isGenerating
+  const canOpenPageTwo = hasGenerated && preview.isReady && !isGenerating
 
   function updateSelection<
     K extends Exclude<keyof PracticeSelection, 'variation'>,
   >(field: K, value: PracticeSelection[K]) {
+    requestVersionRef.current += 1
     setSelection((current) => ({
       ...current,
       [field]: value,
       variation: 0,
     }))
+    setPreview(createEmptyPreview())
     setPageTwoMessage('')
+    setGenerateMessage('')
+    setGenerateError('')
     setHasGenerated(false)
   }
 
-  function handleGenerate() {
-    if (!canGenerate) {
+  async function handleGenerate() {
+    if (
+      !selectedCountry ||
+      !selectedLanguage ||
+      !selectedSceneApiPath ||
+      !canGenerate
+    ) {
       return
     }
 
-    setHasGenerated(true)
-    setSelection((current) => ({
-      ...current,
-      variation: current.variation + 1,
-    }))
+    const requestVersion = requestVersionRef.current + 1
+    requestVersionRef.current = requestVersion
+
+    setIsGenerating(true)
+    setHasGenerated(false)
+    setPreview(createEmptyPreview())
     setPageTwoMessage('')
+    setGenerateMessage('')
+    setGenerateError('')
+
+    try {
+      const response = await fetch(
+        buildContentApiUrl(
+          selectedSceneApiPath,
+          selectedLanguage.apiValue,
+          selectedCountry.apiValue,
+        ),
+        {
+          headers: {
+            Accept: 'application/json',
+          },
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(`Backend returned ${response.status}.`)
+      }
+
+      const payload: unknown = await response.json()
+
+      if (!isPracticePayload(payload)) {
+        throw new Error('Backend payload shape was invalid.')
+      }
+
+      if (requestVersion !== requestVersionRef.current) {
+        return
+      }
+
+      const nextPreview = createPreviewFromPayload(payload)
+
+      setPreview(nextPreview)
+      setHasGenerated(nextPreview.isReady)
+      setGenerateMessage(
+        nextPreview.isReady ? 'Content loaded from backend.' : 'Backend returned no content.',
+      )
+    } catch (error) {
+      if (requestVersion !== requestVersionRef.current) {
+        return
+      }
+
+      const message =
+        error instanceof Error ? error.message : 'Failed to load backend content.'
+
+      setPreview(createEmptyPreview())
+      setGenerateError(message)
+    } finally {
+      if (requestVersion === requestVersionRef.current) {
+        setIsGenerating(false)
+      }
+    }
   }
 
   function handleEnterPageTwo() {
@@ -221,8 +377,8 @@ function App() {
       return
     }
 
-    if (preview.isUnderConstruction) {
-      setPageTwoMessage('Not ready yet.')
+    if (!preview.isReady) {
+      setPageTwoMessage('Generate content first.')
       return
     }
 
@@ -250,7 +406,18 @@ function App() {
   }
 
   return (
-    <main className="page-shell">
+    <main className="page-shell" aria-busy={isGenerating}>
+      {isGenerating && (
+        <div className="loading-overlay" role="status" aria-live="polite">
+          <div className="loading-card">
+            <div className="loading-spinner" aria-hidden="true" />
+            <p className="card-label">Loading</p>
+            <h2>Generating your content</h2>
+            <p className="panel-copy">Please wait while the backend prepares phonetics and sentences.</p>
+          </div>
+        </div>
+      )}
+
       <header className="page-header page-header-brand">
         <div className="brand-lockup">
           <img className="brand-image" src={yanLogo} alt="Yan" />
@@ -277,6 +444,7 @@ function App() {
                 className="text-input"
                 type="text"
                 value={userId}
+                disabled={isGenerating}
                 readOnly
                 autoComplete="off"
               />
@@ -286,6 +454,7 @@ function App() {
               <span className="field-label">Destination</span>
               <select
                 value={selection.destination}
+                disabled={isGenerating}
                 onChange={(event) =>
                   updateSelection(
                     'destination',
@@ -306,6 +475,7 @@ function App() {
               <span className="field-label">Choose scene</span>
               <select
                 value={selection.scene}
+                disabled={isGenerating}
                 onChange={(event) =>
                   updateSelection(
                     'scene',
@@ -330,6 +500,7 @@ function App() {
               options={worldCountryOptions}
               placeholder="Type to narrow the country list"
               value={selection.originCountry}
+              disabled={isGenerating}
               onChange={(value) => updateSelection('originCountry', value)}
             />
 
@@ -339,6 +510,7 @@ function App() {
               options={worldLanguageOptions}
               placeholder="Type to narrow the language list"
               value={selection.motherLanguage}
+              disabled={isGenerating}
               onChange={(value) => updateSelection('motherLanguage', value)}
             />
           </div>
@@ -354,18 +526,32 @@ function App() {
               onClick={handleGenerate}
               disabled={!canGenerate}
             >
-              Generate the phonetic and content
+              {isGenerating ? 'Generating...' : 'Generate the phonetic and content'}
             </button>
+            {generateMessage && <p className="status-note">{generateMessage}</p>}
+            {generateError && <p className="status-note status-note-error">{generateError}</p>}
           </article>
 
           <hr className="section-divider" />
 
           {/* ── Phonetic preview ── */}
-          {preview.isUnderConstruction ? (
+          {isSceneUnderConstruction ? (
             <section className="construction-panel">
               <p className="card-label">Scene</p>
               <h2>Customized is not ready.</h2>
               <p className="panel-copy">Use another scene for now.</p>
+            </section>
+          ) : isGenerating ? (
+            <section className="construction-panel">
+              <p className="card-label">Phonetic preview</p>
+              <h2>Loading content from backend.</h2>
+              <p className="panel-copy">Waiting for `127.0.0.1:8000` to return phonetics and sentences.</p>
+            </section>
+          ) : generateError ? (
+            <section className="construction-panel">
+              <p className="card-label">Phonetic preview</p>
+              <h2>Backend request failed.</h2>
+              <p className="panel-copy">{generateError}</p>
             </section>
           ) : hasGenerated && preview.isReady ? (
             <section className="phonetic-panel">

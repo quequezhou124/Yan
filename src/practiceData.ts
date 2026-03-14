@@ -14,6 +14,7 @@ export type Scene = (typeof sceneOptions)[number]
 export type SearchableOption = {
   value: string
   aliases: string[]
+  apiValue: string
   searchText: string
 }
 
@@ -262,12 +263,17 @@ function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)))
 }
 
-function buildSearchableOption(value: string, aliases: string[]): SearchableOption {
+function buildSearchableOption(
+  value: string,
+  aliases: string[],
+  apiValue = value,
+): SearchableOption {
   const tokens = uniqueStrings([value, ...aliases])
 
   return {
     value,
     aliases: uniqueStrings(aliases),
+    apiValue,
     searchText: tokens.map(normalizeLookup).join(' '),
   }
 }
@@ -332,19 +338,21 @@ export const worldCountryOptions = englishCountryNames.map((englishName) => {
   const code = regionCodeMap.get(normalizeLookup(englishName))
 
   if (!code) {
-    return buildSearchableOption(englishName, [englishName])
+    return buildSearchableOption(englishName, [englishName], englishName)
   }
 
   return buildSearchableOption(getNativeRegionLabel(code, englishName), [
     englishName,
     code,
-  ])
+  ], englishName)
 })
 
 function getNativeLanguageLabel(code: string, fallback: string) {
   const overrides: Record<string, string> = {
     cmn: '普通话',
     yue: '粵語',
+    'zh-CN': '简体中文',
+    'zh-TW': '繁體中文',
     'zh-Hans': '简体中文',
     'zh-Hant': '繁體中文',
   }
@@ -367,10 +375,10 @@ function createLanguageOptions() {
   const options = new Map<string, SearchableOption>()
   const excludedCodes = new Set(['art', 'mis', 'mul', 'und', 'zxx'])
   const variantEntries = [
+    ['zh-CN', 'Chinese', ['Simplified Chinese', 'Mandarin', 'zh', 'zh-Hans']],
+    ['zh-TW', 'Traditional Chinese', ['Chinese Traditional', 'zh-Hant']],
     ['cmn', 'Mandarin Chinese', ['Mandarin']],
     ['yue', 'Cantonese', []],
-    ['zh-Hans', 'Simplified Chinese', ['Chinese Simplified']],
-    ['zh-Hant', 'Traditional Chinese', ['Chinese Traditional']],
   ] as const
 
   function addLanguageOption(
@@ -417,7 +425,7 @@ function createLanguageOptions() {
         code,
         ...(aliasOverrides[code] ?? []),
         ...extraAliases,
-      ]),
+      ], code),
     )
   }
 
@@ -437,7 +445,22 @@ function createLanguageOptions() {
     }
   }
 
-  return Array.from(options.values()).sort((left, right) => {
+  const dedupedOptions: SearchableOption[] = []
+  const seenFingerprints = new Set<string>()
+
+  for (const option of options.values()) {
+    const primaryAlias = option.aliases[0] ?? option.value
+    const fingerprint = `${normalizeLookup(option.value)}::${normalizeLookup(primaryAlias)}`
+
+    if (seenFingerprints.has(fingerprint)) {
+      continue
+    }
+
+    seenFingerprints.add(fingerprint)
+    dedupedOptions.push(option)
+  }
+
+  return dedupedOptions.sort((left, right) => {
     const leftKey = left.aliases[0] ?? left.value
     const rightKey = right.aliases[0] ?? right.value
 
