@@ -25,7 +25,7 @@ function CompletionPopup({
             >
                 <h2 className="p2-completion-title">Congratulations!</h2>
                 <p className="p2-completion-subtitle">
-                    You completed this scene. Here is the pronunciation summary
+                    Here is the pronunciation summary
                     from this lesson:
                 </p>
 

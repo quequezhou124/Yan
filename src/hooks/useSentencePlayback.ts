@@ -51,7 +51,7 @@ function useSentencePlayback({
 
     const handleWordBoundary = useCallback((event: WordBoundaryEvent) => {
         if (playbackModeRef.current === 'word') {
-            setActiveWordIndex(selectedWordIndexRef.current)
+            setActiveWordIndex(null)
             return
         }
 
@@ -91,7 +91,7 @@ function useSentencePlayback({
             bridgeRef.current?.stop()
             playbackModeRef.current = 'word'
             selectedWordIndexRef.current = wordIndex
-            setActiveWordIndex(wordIndex)
+            setActiveWordIndex(null)
             setIsPlaying(true)
             bridgeRef.current?.speakWord(word)
         },

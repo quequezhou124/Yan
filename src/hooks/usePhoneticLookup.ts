@@ -33,7 +33,7 @@ function usePhoneticLookup(): UsePhoneticLookupResult {
 
         if (!normalizedWord) {
             setPhoneticSymbol(null)
-            setPhoneticError('No valid word selected.')
+            setPhoneticError(null)
             setIsPhoneticLoading(false)
             return
         }

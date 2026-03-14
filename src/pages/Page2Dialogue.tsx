@@ -15,6 +15,7 @@ import useSentencePlayback from '../hooks/useSentencePlayback'
 import useWordSelection from '../hooks/useWordSelection'
 import type { P2Payload, Page2RouteState } from '../types/dialogue'
 import type { SentencePlayerBridgeApi } from '../types/tts'
+import { normalizeWord } from '../utils/normalizeWord'
 import '../styles/p2.css'
 
 const FALLBACK_PAYLOAD: P2Payload = {
@@ -33,7 +34,6 @@ function Page2Dialogue() {
 
     const {
         selectedWord,
-        selectedWordIndex,
         selectedWordRect,
         selectWord,
         clearSelection,
@@ -109,6 +109,11 @@ function Page2Dialogue() {
         wordIndex: number,
         anchorRect: DOMRect
     ) => {
+        if (!normalizeWord(word)) {
+            clearWordDetails()
+            return
+        }
+
         selectWord({
             word,
             wordIndex,
@@ -220,7 +225,7 @@ function Page2Dialogue() {
                         <SentenceLine
                             sentence={sentence}
                             activeWordIndex={activeWordIndex}
-                            selectedWordIndex={selectedWordIndex}
+                            selectedWordIndex={null}
                             onWordClick={handleWordClick}
                         />
                         <TranslationToggle
