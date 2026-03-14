@@ -71,3 +71,14 @@ export default defineConfig([
   },
 ])
 ```
+
+## Frontend env vars
+
+The Vite app root is `Yan/`, so frontend env files must live in that directory:
+
+- `Yan/.env`
+- `Yan/.env.local` for local secrets
+
+Only variables prefixed with `VITE_` are exposed to frontend code.
+
+Restart `npm run dev` after changing env files, because Vite only loads them on server startup.
