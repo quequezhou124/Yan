@@ -1,0 +1,23 @@
+{
+  "p1": [
+    ["θ", "th", "think"],
+    ["æ", "a", "apple"],
+    ["r", "r", "rice"]
+  ],
+  "p2": {
+    "sentences": [
+      "Excuse me, where can I find the apples?",
+      "I think the bread is in aisle three.",
+      "Could you help me with this price?",
+      "I would like a bag of rice, please.",
+      "Thank you, have a great day."
+    ],
+    "tsentences": [
+      "打扰一下，请问我在哪里可以找到苹果？",
+      "我觉得面包在第三条过道。",
+      "你可以帮我看一下这个价格吗？",
+      "我想买一袋米，谢谢。",
+      "谢谢你，祝你今天愉快。"
+    ]
+  }
+}
