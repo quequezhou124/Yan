@@ -1,84 +1,100 @@
-# React + TypeScript + Vite
+# Yan
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Yan is a hackathon prototype that helps newcomers practice real-world English conversations before they face them in daily life.
 
-Currently, two official plugins are available:
+The project focuses on high-stress situations such as the airport, the supermarket, IRCC-related interactions, and neighborhood conversations. Instead of showing generic language exercises, Yan generates phonetic hints and short dialogue practice based on the learner's background and selected scenario.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Demo Screenshots
 
-## React Compiler
+### Page 1: setup and content generation
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+![Page 1 setup and content generation](docs/images/page1-generate-state.png)
 
-## Expanding the ESLint configuration
+### Page 2: airport dialogue practice
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+![Page 2 airport dialogue practice](docs/images/page2-airport-dialogue.png)
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Problem
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Many newcomers know some English, but still struggle when they need to react quickly in unfamiliar situations. The gap is not only vocabulary. It is confidence, pronunciation, listening, and context.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Yan is designed to make those first interactions feel less intimidating by turning practical situations into guided speaking practice.
+
+## What The Prototype Does
+
+- Lets the user choose a destination, scenario, original country, and mother language.
+- Requests tailored practice content from a backend service.
+- Blocks the UI with a full-screen loading overlay while content is being generated, so the state is clear and consistent.
+- Shows a phonetic preview on Page 1 before entering the scene.
+- Opens a dialogue-practice view with scene-specific visuals on Page 2.
+- Supports sentence playback and word-by-word pronunciation lookup.
+- Falls back to browser speech synthesis, with optional provider-based TTS support through env vars.
+
+## Demo Flow
+
+1. Open `Page1` at `/`.
+2. Select the learner setup and scene.
+3. Generate pronunciation and dialogue content from the backend.
+4. Review the phonetic preview.
+5. Enter the scene and practice the generated dialogue on `/p2/:sceneId`.
+6. Tap words to inspect pronunciation and replay speech.
+
+## Stack
+
+- React 19
+- TypeScript
+- Vite
+- React Router
+- Browser Speech Synthesis API
+- Backend APIs for generated content and phonetic lookup
+
+## Project Structure
+
+- `/Users/jiucheng/Dev/Yan/src/pages/Page1.tsx`
+  The setup and generation flow.
+- `/Users/jiucheng/Dev/Yan/src/pages/Page2Dialogue.tsx`
+  The interactive dialogue practice experience.
+- `/Users/jiucheng/Dev/Yan/src/services/phoneticsService.ts`
+  Word-level phonetic lookup.
+- `/Users/jiucheng/Dev/Yan/src/services/ttsService.ts`
+  Browser/provider text-to-speech playback.
+- `/Users/jiucheng/Dev/Yan/docs/images`
+  Demo screenshots used in project documentation.
+
+## Local Setup
+
+1. Install dependencies:
+
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+2. Configure local env values in `/Users/jiucheng/Dev/Yan/.env.local`:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```env
+VITE_API_BASE_URL=/api/v1
+API_PROXY_TARGET=http://127.0.0.1:8000
 ```
 
-## Frontend env vars
+3. Start the app:
 
-The Vite app root is `Yan/`, so frontend env files must live in that directory:
+```bash
+npm run dev
+```
 
-- `Yan/.env`
-- `Yan/.env.local` for local secrets
+## Scripts
 
-Only variables prefixed with `VITE_` are exposed to frontend code.
+- `npm run dev`
+- `npm run build`
+- `npm run lint`
+- `npm run preview`
 
-Restart `npm run dev` after changing env files, because Vite only loads them on server startup.
+## Notes
+
+- Frontend env files must live at `/Users/jiucheng/Dev/Yan/.env` or `/Users/jiucheng/Dev/Yan/.env.local`.
+- Only `VITE_` variables are exposed to frontend code.
+- Restart the dev server after changing env files.
+
+## Hackathon Direction
+
+This prototype is aimed at validating one core idea: scenario-based language practice can feel more useful and more approachable when it is personalized to the learner's context and presented as an interactive experience rather than a static lesson.

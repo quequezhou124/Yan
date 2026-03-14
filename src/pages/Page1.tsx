@@ -466,7 +466,21 @@ function Page1() {
     }
 
     return (
-        <main className="page-shell">
+        <main className="page-shell" aria-busy={isGenerating}>
+            {isGenerating ? (
+                <div className="loading-overlay" role="status" aria-live="polite">
+                    <div className="loading-card">
+                        <div className="loading-spinner" aria-hidden="true" />
+                        <p className="card-label">Loading</p>
+                        <h2>Generating your content</h2>
+                        <p className="panel-copy">
+                            Please wait while the backend prepares phonetics and
+                            sentences.
+                        </p>
+                    </div>
+                </div>
+            ) : null}
+
             <header className="page-header page-header-brand">
                 <div className="brand-lockup">
                     <img className="brand-image" src={yanLogo} alt="Yan" />
