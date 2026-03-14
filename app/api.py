@@ -1,6 +1,11 @@
 from flask import Blueprint, current_app, jsonify, request
 
 from .content_service import ContentGenerationError, generate_content
+from .pronunciation_service import (
+    PronunciationGenerationError,
+    PronunciationValidationError,
+    generate_pronunciations,
+)
 
 api_v1 = Blueprint("api_v1", __name__)
 
@@ -30,6 +35,27 @@ def content(userid: int, scene: str, origin_lang: str, country: str):
                 {
                     "error": "ollama_generation_failed",
                     "message": "Model did not return valid content JSON",
+                }
+            ),
+            502,
+        )
+
+    return jsonify(payload), 200
+
+
+@api_v1.get("/words/<path:words>")
+def words(words: str):
+    try:
+        payload = generate_pronunciations(words)
+    except PronunciationValidationError as exc:
+        return jsonify({"error": "invalid_words_input", "message": str(exc)}), 400
+    except PronunciationGenerationError:
+        current_app.logger.exception("Failed to generate pronunciations from Ollama")
+        return (
+            jsonify(
+                {
+                    "error": "ollama_pronunciation_failed",
+                    "message": "Model did not return valid pronunciation JSON",
                 }
             ),
             502,

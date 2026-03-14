@@ -1,6 +1,6 @@
 from flask import Flask
 
-from .api import api_v1, content, echo, health_check
+from .api import api_v1, content, echo, health_check, words
 
 
 def create_app() -> Flask:
@@ -16,5 +16,6 @@ def create_app() -> Flask:
         view_func=content,
         methods=["GET"],
     )
+    app.add_url_rule("/words/<path:words>", endpoint="words_root", view_func=words, methods=["GET"])
 
     return app

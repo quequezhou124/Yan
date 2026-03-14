@@ -1,10 +1,7 @@
 import json
-import os
-from dataclasses import dataclass
 from typing import Any
 
-import requests
-
+from .ollama_client import OllamaClientError, OllamaConfig, chat_json
 from .user_progress import LearnedPhonics, UserProgressStore
 
 
@@ -34,23 +31,6 @@ class ContentValidationError(Exception):
     """Raised when model output does not match the expected schema."""
 
 
-@dataclass(frozen=True)
-class OllamaConfig:
-    base_url: str
-    model: str
-    timeout_seconds: int
-    max_retries: int
-
-    @classmethod
-    def from_env(cls) -> "OllamaConfig":
-        return cls(
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            model=os.getenv("OLLAMA_MODEL", "gpt-oss:120b-cloud"),
-            timeout_seconds=_read_int_env("OLLAMA_TIMEOUT_SECONDS", 60),
-            max_retries=_read_int_env("OLLAMA_MAX_RETRIES", 2),
-        )
-
-
 def generate_content(userid: int, scene: str, origin_lang: str, country: str) -> dict[str, Any]:
     config = OllamaConfig.from_env()
     progress_store = UserProgressStore()
@@ -59,17 +39,21 @@ def generate_content(userid: int, scene: str, origin_lang: str, country: str) ->
     last_validation_error: ContentValidationError | None = None
 
     for attempt in range(config.max_retries + 1):
-        raw_content = _call_ollama(
-            config=config,
-            user_prompt=_build_user_prompt(
-                userid=userid,
-                scene=scene,
-                origin_lang=origin_lang,
-                country=country,
-                learned_phonics=learned_phonics,
-                repair_reason=repair_reason,
-            ),
-        )
+        try:
+            raw_content = chat_json(
+                system_prompt=SYSTEM_PROMPT,
+                user_prompt=_build_user_prompt(
+                    userid=userid,
+                    scene=scene,
+                    origin_lang=origin_lang,
+                    country=country,
+                    learned_phonics=learned_phonics,
+                    repair_reason=repair_reason,
+                ),
+                config=config,
+            )
+        except OllamaClientError as exc:
+            raise ContentGenerationError("Ollama request failed") from exc
 
         try:
             payload = _validate_and_normalize_payload(raw_content)
@@ -84,19 +68,6 @@ def generate_content(userid: int, scene: str, origin_lang: str, country: str) ->
         return payload
 
     raise ContentGenerationError("Model did not return valid content JSON") from last_validation_error
-
-
-def _read_int_env(name: str, default: int) -> int:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-
-    try:
-        value = int(raw_value)
-    except ValueError:
-        return default
-
-    return value if value >= 0 else default
 
 
 def _build_user_prompt(
@@ -164,43 +135,6 @@ def _build_learned_phonics_guidance(learned_phonics: list[LearnedPhonics]) -> st
             "Use an already-seen phonics item only when it is strongly relevant to the scene or needed for natural coverage.",
         ]
     )
-
-
-def _call_ollama(config: OllamaConfig, user_prompt: str) -> str:
-    url = f"{config.base_url.rstrip('/')}/api/chat"
-    payload = {
-        "model": config.model,
-        "stream": False,
-        "format": "json",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=config.timeout_seconds)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        raise ContentGenerationError("Ollama request failed") from exc
-
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise ContentGenerationError("Ollama returned a non-JSON response envelope") from exc
-
-    message = body.get("message")
-    if isinstance(message, dict) and isinstance(message.get("content"), str):
-        content = message["content"]
-    elif isinstance(body.get("response"), str):
-        content = body["response"]
-    else:
-        raise ContentGenerationError("Ollama response missing generated content")
-
-    if not content.strip():
-        raise ContentGenerationError("Ollama response missing generated content")
-
-    return content
 
 
 def _validate_and_normalize_payload(raw_content: str) -> dict[str, Any]:

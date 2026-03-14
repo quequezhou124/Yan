@@ -23,6 +23,7 @@ venv/bin/python run.py
 - `GET /api/v1/health`
 - `POST /api/v1/echo`
 - `GET /api/v1/content/<userid>/<scene>/<origin_lang>/<country>`
+- `GET /api/v1/words/<words>`
 
 ## Content Endpoint
 
@@ -64,6 +65,31 @@ Example response:
       "我提着袋子回家。"
     ]
   }
+}
+```
+
+## Words Endpoint
+
+`GET /api/v1/words/<words>` converts one or more words into IPA.
+
+- If you pass commas, they are treated as separators: `shopping,chair`
+- If you pass spaces, they are split on whitespace: `shopping%20chair`
+- The response always returns a `words` array with `{word, ipa}` objects
+
+Example request:
+
+```bash
+curl -s "http://127.0.0.1:8000/api/v1/words/shopping,chair"
+```
+
+Example response:
+
+```json
+{
+  "words": [
+    {"word": "shopping", "ipa": "/shap-ing/"},
+    {"word": "chair", "ipa": "/cher/"}
+  ]
 }
 ```
 
