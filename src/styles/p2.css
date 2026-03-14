@@ -105,6 +105,12 @@
     cursor: not-allowed;
 }
 
+.p2-progress-nav-complete {
+    background: #22c55e;
+    color: #052e16;
+    border-color: rgba(34, 197, 94, 0.6);
+}
+
 .p2-progress-track {
     flex: 1;
     height: 10px;
@@ -182,8 +188,7 @@
 }
 
 .p2-translation-visibility-button,
-.p2-play-icon-button,
-.p2-step-button {
+.p2-play-icon-button {
     border: 1px solid transparent;
     border-radius: 12px;
     min-height: 44px;
@@ -223,25 +228,8 @@
     color: #111827;
 }
 
-.p2-stepper {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 14px;
-}
-
-.p2-step-button {
-    background: #f8fafc;
-    color: #111827;
-}
-
-.p2-step-button:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
 .p2-translation-visibility-button:hover,
-.p2-play-icon-button:hover,
-.p2-step-button:hover:not(:disabled) {
+.p2-play-icon-button:hover {
     transform: translateY(-1px);
 }
 
@@ -300,6 +288,66 @@
     color: #f8fafc;
 }
 
+.p2-completion-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    display: grid;
+    place-items: center;
+    background: rgba(2, 6, 23, 0.6);
+    padding: 16px;
+}
+
+.p2-completion-modal {
+    width: min(560px, 100%);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 18px;
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+    padding: 18px;
+}
+
+.p2-completion-title {
+    margin: 0 0 8px;
+    font-size: 1.6rem;
+    color: #ffffff;
+}
+
+.p2-completion-subtitle {
+    margin: 0 0 12px;
+    color: #dbeafe;
+}
+
+.p2-completion-list {
+    margin: 0 0 14px;
+    padding-left: 18px;
+}
+
+.p2-completion-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    color: #f8fafc;
+}
+
+.p2-completion-empty {
+    margin: 0 0 14px;
+    color: #dbeafe;
+}
+
+.p2-completion-continue {
+    border: none;
+    border-radius: 12px;
+    min-height: 44px;
+    padding: 10px 16px;
+    background: #f59e0b;
+    color: #111827;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
 @media (max-width: 768px) {
     .p2-content {
         padding: 12px;
@@ -319,12 +367,7 @@
         min-width: 36px;
     }
 
-    .p2-stepper {
-        flex-direction: column;
-    }
-
-    .p2-translation-visibility-button,
-    .p2-step-button {
+    .p2-translation-visibility-button {
         width: auto;
     }
 }

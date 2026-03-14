@@ -3,8 +3,10 @@ type ProgressHeaderProps = {
     total: number
     canGoBack: boolean
     canGoNext: boolean
+    isLastSentence: boolean
     onBack: () => void
     onNext: () => void
+    onComplete: () => void
 }
 
 function ProgressHeader({
@@ -12,12 +14,17 @@ function ProgressHeader({
     total,
     canGoBack,
     canGoNext,
+    isLastSentence,
     onBack,
     onNext,
+    onComplete,
 }: ProgressHeaderProps) {
     const safeTotal = total > 0 ? total : 1
     const boundedCurrent = Math.min(Math.max(current, 0), safeTotal - 1)
     const progressPercent = ((boundedCurrent + 1) / safeTotal) * 100
+    const shouldShowComplete = isLastSentence
+    const nextAction = shouldShowComplete ? onComplete : onNext
+    const isNextDisabled = shouldShowComplete ? false : !canGoNext
 
     return (
         <header className="p2-progress">
@@ -54,12 +61,39 @@ function ProgressHeader({
 
                 <button
                     type="button"
-                    className="p2-progress-nav"
-                    onClick={onNext}
-                    disabled={!canGoNext}
-                    aria-label="Go to next sentence"
+                    className={
+                        shouldShowComplete
+                            ? 'p2-progress-nav p2-progress-nav-complete'
+                            : 'p2-progress-nav'
+                    }
+                    onClick={nextAction}
+                    disabled={isNextDisabled}
+                    aria-label={
+                        shouldShowComplete
+                            ? 'Complete scene and open summary'
+                            : 'Go to next sentence'
+                    }
                 >
-                    {'>'}
+                    {shouldShowComplete ? (
+                        <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            focusable="false"
+                        >
+                            <path
+                                d="M5 12.5 L10 17.5 L19 7.5"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            />
+                        </svg>
+                    ) : (
+                        '>'
+                    )}
                 </button>
             </div>
         </header>

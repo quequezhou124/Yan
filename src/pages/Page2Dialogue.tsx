@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import CompletionPopup from '../components/p2/CompletionPopup'
 import OverlayCard from '../components/p2/OverlayCard'
 import PhoneticPopup from '../components/p2/PhoneticPopup'
 import PlaybackControls from '../components/p2/PlaybackControls'
@@ -24,8 +25,10 @@ const FALLBACK_PAYLOAD: P2Payload = {
 function Page2Dialogue() {
     const { sceneId: sceneIdParam } = useParams()
     const location = useLocation()
+    const navigate = useNavigate()
     const [sentenceIndex, setSentenceIndex] = useState(0)
     const [showTranslation, setShowTranslation] = useState(true)
+    const [isCompletionOpen, setIsCompletionOpen] = useState(false)
     const bridgeRef = useRef<SentencePlayerBridgeApi | null>(null)
 
     const {
@@ -39,6 +42,7 @@ function Page2Dialogue() {
         phoneticSymbol,
         isPhoneticLoading,
         phoneticError,
+        learnedPronunciations,
         lookupPhonetic,
         clearPhonetic,
     } = usePhoneticLookup()
@@ -67,6 +71,7 @@ function Page2Dialogue() {
     )
     const canGoBack = currentSentenceIndex > 0
     const canGoNext = currentSentenceIndex < safeSentenceCount - 1
+    const isLastSentence = currentSentenceIndex === safeSentenceCount - 1
 
     const {
         isPlaying,
@@ -111,6 +116,17 @@ function Page2Dialogue() {
         })
         speakWordAtIndex(word, wordIndex)
         void lookupPhonetic(word)
+    }
+
+    const handleCompleteScene = () => {
+        stopPlayback()
+        clearWordDetails()
+        setIsCompletionOpen(true)
+    }
+
+    const handleContinueToPage1 = () => {
+        setIsCompletionOpen(false)
+        navigate('/')
     }
 
     useEffect(() => {
@@ -190,8 +206,10 @@ function Page2Dialogue() {
                         total={safeSentenceCount}
                         canGoBack={canGoBack}
                         canGoNext={canGoNext}
+                        isLastSentence={isLastSentence}
                         onBack={handleBack}
                         onNext={handleNext}
+                        onComplete={handleCompleteScene}
                     />
 
                     <div className="p2-sentence-row">
@@ -234,6 +252,12 @@ function Page2Dialogue() {
                 loading={isPhoneticLoading}
                 error={phoneticError}
                 onClose={clearWordDetails}
+            />
+
+            <CompletionPopup
+                isOpen={isCompletionOpen}
+                learnedPronunciations={learnedPronunciations}
+                onContinue={handleContinueToPage1}
             />
         </main>
     )

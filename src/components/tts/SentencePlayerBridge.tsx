@@ -5,6 +5,11 @@ import {
     useImperativeHandle,
     useRef,
 } from 'react'
+import { createTtsPlayer } from '../../services/ttsService'
+import type { TtsPlayer } from '../../services/ttsService'
+import { createWordHighlighter } from '../../utils/speechSync'
+import type { HighlighterController } from '../../utils/speechSync'
+import { tokenizeSentence } from '../../utils/tokenize'
 import {
     computeWordBoundaries,
     splitSentenceWords,
@@ -15,39 +20,26 @@ import type {
 } from '../../types/tts'
 
 type SentencePlayerBridgeProps = {
-    wordDurationMs?: number
     onStart?: () => void
     onPause?: () => void
     onEnd?: () => void
     onWordBoundary?: (event: WordBoundaryEvent) => void
 }
 
-const DEFAULT_WORD_DURATION_MS = 500
-
 const SentencePlayerBridge = forwardRef<
     SentencePlayerBridgeApi,
     SentencePlayerBridgeProps
->(function SentencePlayerBridge(
-    {
-        wordDurationMs = DEFAULT_WORD_DURATION_MS,
-        onStart,
-        onPause,
-        onEnd,
-        onWordBoundary,
-    },
-    ref
-) {
-    const timerRef = useRef<number | null>(null)
+>(function SentencePlayerBridge({ onStart, onPause, onEnd, onWordBoundary }, ref) {
+    const playerRef = useRef<TtsPlayer | null>(null)
+    const highlighterRef = useRef<HighlighterController | null>(null)
+    const currentTextRef = useRef('')
     const wordsRef = useRef<string[]>([])
     const boundariesRef = useRef<Array<{ start: number; end: number }>>([])
-    const wordIndexRef = useRef(0)
-    const isPlayingRef = useRef(false)
+    const tokenWordMapRef = useRef(new Map<number, number>())
 
-    const clearTimer = useCallback(() => {
-        if (timerRef.current !== null) {
-            window.clearTimeout(timerRef.current)
-            timerRef.current = null
-        }
+    const disposeHighlighter = useCallback(() => {
+        highlighterRef.current?.dispose()
+        highlighterRef.current = null
     }, [])
 
     const emitBoundary = useCallback(
@@ -69,93 +61,98 @@ const SentencePlayerBridge = forwardRef<
         [onWordBoundary]
     )
 
-    const stopInternal = useCallback(
-        (emitEnd: boolean) => {
-            clearTimer()
-            isPlayingRef.current = false
-            wordIndexRef.current = 0
+    const setupSpeechSync = useCallback(
+        (text: string) => {
+            const tokens = tokenizeSentence(text)
+            const tokenWordMap = new Map<number, number>()
+            let runningWordIndex = 0
 
-            if (emitEnd) {
-                onEnd?.()
-            }
+            tokens.forEach((token, tokenIndex) => {
+                if (!token.isWord) {
+                    return
+                }
+
+                tokenWordMap.set(tokenIndex, runningWordIndex)
+                runningWordIndex += 1
+            })
+
+            tokenWordMapRef.current = tokenWordMap
+            wordsRef.current = splitSentenceWords(text)
+            boundariesRef.current = computeWordBoundaries(text, wordsRef.current)
+
+            disposeHighlighter()
+            highlighterRef.current = createWordHighlighter({
+                text,
+                onWordChange: (tokenIndex) => {
+                    if (tokenIndex === null) {
+                        return
+                    }
+
+                    const mappedWordIndex = tokenWordMapRef.current.get(tokenIndex)
+
+                    if (mappedWordIndex === undefined) {
+                        return
+                    }
+
+                    emitBoundary(mappedWordIndex)
+                },
+                onComplete: () => {
+                    // Playback end events are forwarded from the TTS player callbacks.
+                },
+            })
         },
-        [clearTimer, onEnd]
+        [disposeHighlighter, emitBoundary]
     )
 
-    const queueNextWord = useCallback(() => {
-        clearTimer()
-
-        if (!isPlayingRef.current) {
-            return
-        }
-
-        if (wordIndexRef.current >= wordsRef.current.length) {
-            stopInternal(true)
-            return
-        }
-
-        emitBoundary(wordIndexRef.current)
-        wordIndexRef.current += 1
-
-        timerRef.current = window.setTimeout(queueNextWord, wordDurationMs)
-    }, [clearTimer, emitBoundary, stopInternal, wordDurationMs])
-
-    const speakSentence = useCallback(
+    const playText = useCallback(
         (text: string) => {
-            const words = splitSentenceWords(text)
+            const nextText = text.trim()
 
-            clearTimer()
-            wordsRef.current = words
-            boundariesRef.current = computeWordBoundaries(text, words)
-            wordIndexRef.current = 0
-
-            if (words.length === 0) {
-                isPlayingRef.current = false
+            if (!nextText) {
                 onEnd?.()
                 return
             }
 
-            isPlayingRef.current = true
-            onStart?.()
-            queueNextWord()
+            currentTextRef.current = nextText
+            setupSpeechSync(nextText)
+            void playerRef.current?.play(nextText)
         },
-        [clearTimer, onEnd, onStart, queueNextWord]
+        [onEnd, setupSpeechSync]
+    )
+
+    const speakSentence = useCallback(
+        (text: string) => {
+            playText(text)
+        },
+        [playText]
     )
 
     const speakWord = useCallback(
         (word: string) => {
-            speakSentence(word)
+            playText(word)
         },
-        [speakSentence]
+        [playText]
     )
 
     const pause = useCallback(() => {
-        if (!isPlayingRef.current) {
-            return
-        }
-
-        isPlayingRef.current = false
-        clearTimer()
+        highlighterRef.current?.stop()
+        playerRef.current?.pause()
         onPause?.()
-    }, [clearTimer, onPause])
+    }, [onPause])
 
     const resume = useCallback(() => {
-        if (isPlayingRef.current) {
+        if (!currentTextRef.current) {
             return
         }
 
-        if (wordIndexRef.current >= wordsRef.current.length) {
-            return
-        }
-
-        isPlayingRef.current = true
-        onStart?.()
-        queueNextWord()
-    }, [onStart, queueNextWord])
+        playText(currentTextRef.current)
+    }, [playText])
 
     const stop = useCallback(() => {
-        stopInternal(false)
-    }, [stopInternal])
+        highlighterRef.current?.reset()
+        highlighterRef.current?.stop()
+        playerRef.current?.stop()
+    }, [])
 
     useImperativeHandle(
         ref,
@@ -170,10 +167,38 @@ const SentencePlayerBridge = forwardRef<
     )
 
     useEffect(() => {
+        const player = createTtsPlayer({
+            onStateChange: (state) => {
+                if (state === 'paused') {
+                    highlighterRef.current?.stop()
+                }
+            },
+            onError: () => {
+                highlighterRef.current?.stop()
+                onEnd?.()
+            },
+            onPlaybackStart: () => {
+                highlighterRef.current?.reset()
+                highlighterRef.current?.start()
+                onStart?.()
+            },
+            onPlaybackEnd: () => {
+                highlighterRef.current?.stop()
+                onEnd?.()
+            },
+            onEngineChange: () => {
+                // No UI branching needed for engine type in Page 2.
+            },
+        })
+
+        playerRef.current = player
+
         return () => {
-            clearTimer()
+            disposeHighlighter()
+            player.dispose()
+            playerRef.current = null
         }
-    }, [clearTimer])
+    }, [disposeHighlighter, onEnd, onStart])
 
     return null
 })

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { fetchPhoneticSymbol } from '../services/phoneticsService'
+import type { LearnedPronunciation } from '../types/phonetics'
 import { normalizeWord } from '../utils/normalizeWord'
 
 const PHONETIC_TIMEOUT_MS = 6000
@@ -8,6 +9,7 @@ type UsePhoneticLookupResult = {
     phoneticSymbol: string | null
     isPhoneticLoading: boolean
     phoneticError: string | null
+    learnedPronunciations: LearnedPronunciation[]
     lookupPhonetic: (word: string) => Promise<void>
     clearPhonetic: () => void
 }
@@ -22,6 +24,9 @@ function usePhoneticLookup(): UsePhoneticLookupResult {
     const [phoneticSymbol, setPhoneticSymbol] = useState<string | null>(null)
     const [isPhoneticLoading, setIsPhoneticLoading] = useState(false)
     const [phoneticError, setPhoneticError] = useState<string | null>(null)
+    const [learnedPronunciations, setLearnedPronunciations] = useState<
+        LearnedPronunciation[]
+    >([])
 
     const lookupPhonetic = useCallback(async (word: string) => {
         const normalizedWord = normalizeWord(word)
@@ -76,6 +81,28 @@ function usePhoneticLookup(): UsePhoneticLookupResult {
             cacheRef.current.set(normalizedWord, response.ipa)
             setPhoneticSymbol(response.ipa)
             setPhoneticError(null)
+            setLearnedPronunciations((previous) => {
+                const existingIndex = previous.findIndex(
+                    (entry) => normalizeWord(entry.word) === normalizedWord
+                )
+
+                if (existingIndex >= 0) {
+                    const next = [...previous]
+                    next[existingIndex] = {
+                        word: response.word || word,
+                        ipa: response.ipa,
+                    }
+                    return next
+                }
+
+                return [
+                    ...previous,
+                    {
+                        word: response.word || word,
+                        ipa: response.ipa,
+                    },
+                ]
+            })
         } catch (error) {
             if (requestId !== requestIdRef.current) {
                 return
@@ -127,6 +154,7 @@ function usePhoneticLookup(): UsePhoneticLookupResult {
         phoneticSymbol,
         isPhoneticLoading,
         phoneticError,
+        learnedPronunciations,
         lookupPhonetic,
         clearPhonetic,
     }
