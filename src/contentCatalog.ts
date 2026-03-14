@@ -29,7 +29,6 @@ export type PracticeSelection = {
   scene: Scene | ''
   originCountry: string
   motherLanguage: string
-  variation: number
 }
 
 type PracticePayload = {
@@ -43,7 +42,6 @@ type PracticePayload = {
 export type PracticePreview = {
   phonetics: PhoneticRow[]
   payload: PracticePayload
-  isUnderConstruction: boolean
   isReady: boolean
 }
 
@@ -470,137 +468,9 @@ function createLanguageOptions() {
 
 export const worldLanguageOptions = createLanguageOptions()
 
-const phoneticPool: PhoneticRow[] = [
-  { symbol: 'ae', writing: 'a', example: 'apple' },
-  { symbol: 'th', writing: 'th', example: 'think' },
-  { symbol: 'r', writing: 'r', example: 'rice' },
-  { symbol: 'sh', writing: 'sh', example: 'shoe' },
-  { symbol: 'ee', writing: 'ee', example: 'see' },
-  { symbol: 'oi', writing: 'oi', example: 'coin' },
-  { symbol: 'ch', writing: 'ch', example: 'chair' },
-  { symbol: 'ow', writing: 'ow', example: 'how' },
-]
-
-const sceneSentenceBundles: Record<Exclude<Scene, 'Customized'>, string[][]> = {
-  Supermarket: [
-    [
-      'Excuse me, where can I find the apples?',
-      'Could you tell me the price of this bread?',
-      'I would like one bag of rice, please.',
-      'Do you have a smaller bottle of milk?',
-    ],
-    [
-      'Are these vegetables fresh today?',
-      'Can I buy half a kilo of grapes?',
-      'Which one is less sweet?',
-      'Please put these tomatoes in a separate bag.',
-    ],
-  ],
-  Airport: [
-    [
-      'Hello, I would like to check in for my flight.',
-      'Here is my passport and boarding pass.',
-      'Can I bring this bag as carry-on luggage?',
-      'What time does boarding start?',
-    ],
-    [
-      'Excuse me, where is gate twenty-three?',
-      'Is this the line for security screening?',
-      'My flight was changed. Which gate should I go to now?',
-      'How far is the international terminal from here?',
-    ],
-  ],
-  IRCC: [
-    [
-      'Hello, I have an appointment this morning.',
-      'I would like to confirm which documents I need.',
-      'Can I submit this form today?',
-      'How long does the next step usually take?',
-    ],
-    [
-      'I received an email and I need help understanding it.',
-      'Is anything missing from my application?',
-      'Could you explain this request one more time?',
-      'Where can I upload the additional documents?',
-    ],
-  ],
-  Neighbourhood: [
-    [
-      'Hi, is there a pharmacy near this street?',
-      'Which bus goes to the public library?',
-      'Can you show me the closest grocery store?',
-      'How long does it take to walk there?',
-    ],
-    [
-      'Hello, I just moved here last week.',
-      'Do you know when the recycling is collected?',
-      'Is this park busy in the evening?',
-      'Thank you for helping me learn the area.',
-    ],
-  ],
-}
-
 export const defaultSelection: PracticeSelection = {
   destination: '',
   scene: '',
   originCountry: '',
   motherLanguage: '',
-  variation: 0,
-}
-
-export function buildPracticePreview(
-  selection: PracticeSelection,
-): PracticePreview {
-  if (!selection.scene) {
-    return {
-      phonetics: [],
-      payload: {
-        p1: [],
-        p2: {
-          sentences: [],
-          tsentences: [],
-        },
-      },
-      isUnderConstruction: false,
-      isReady: false,
-    }
-  }
-
-  const phoneticStart = selection.variation % phoneticPool.length
-  const phonetics = Array.from({ length: 4 }, (_, index) => {
-    return phoneticPool[(phoneticStart + index) % phoneticPool.length]
-  })
-
-  if (selection.scene === 'Customized') {
-    return {
-      phonetics,
-      payload: {
-        p1: phonetics.map((entry) => [entry.symbol, entry.writing, entry.example]),
-        p2: {
-          sentences: [],
-          tsentences: [],
-        },
-      },
-      isUnderConstruction: true,
-      isReady: false,
-    }
-  }
-
-  const sentenceSet =
-    sceneSentenceBundles[selection.scene][
-      selection.variation % sceneSentenceBundles[selection.scene].length
-    ]
-
-  return {
-    phonetics,
-    payload: {
-      p1: phonetics.map((entry) => [entry.symbol, entry.writing, entry.example]),
-      p2: {
-        sentences: sentenceSet,
-        tsentences: sentenceSet.map(() => ''),
-      },
-    },
-    isUnderConstruction: false,
-    isReady: true,
-  }
 }

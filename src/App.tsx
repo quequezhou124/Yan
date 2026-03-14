@@ -12,7 +12,7 @@ import {
   type PracticeSelection,
   type PracticePreview,
   type SearchableOption,
-} from './practiceData'
+} from './contentCatalog'
 
 const PAGE_TWO_STORAGE_KEY = 'yan-page-two-payload'
 const PAGE_TWO_CONTEXT_KEY = 'yan-page-two-context'
@@ -39,7 +39,6 @@ function createEmptyPreview(): PracticePreview {
         tsentences: [],
       },
     },
-    isUnderConstruction: false,
     isReady: false,
   }
 }
@@ -74,7 +73,6 @@ function createPreviewFromPayload(payload: PracticePayload): PracticePreview {
       example,
     })),
     payload,
-    isUnderConstruction: false,
     isReady: payload.p1.length > 0 && payload.p2.sentences.length > 0,
   }
 }
@@ -277,14 +275,14 @@ function App() {
   const canGenerate = allFieldsFilled && !isSceneUnderConstruction && !isGenerating
   const canOpenPageTwo = hasGenerated && preview.isReady && !isGenerating
 
-  function updateSelection<
-    K extends Exclude<keyof PracticeSelection, 'variation'>,
-  >(field: K, value: PracticeSelection[K]) {
+  function updateSelection<K extends keyof PracticeSelection>(
+    field: K,
+    value: PracticeSelection[K],
+  ) {
     requestVersionRef.current += 1
     setSelection((current) => ({
       ...current,
       [field]: value,
-      variation: 0,
     }))
     setPreview(createEmptyPreview())
     setPageTwoMessage('')
@@ -545,7 +543,7 @@ function App() {
             <section className="construction-panel">
               <p className="card-label">Phonetic preview</p>
               <h2>Loading content from backend.</h2>
-              <p className="panel-copy">Waiting for `127.0.0.1:8000` to return phonetics and sentences.</p>
+              <p className="panel-copy">Waiting for the backend to return phonetics and sentences.</p>
             </section>
           ) : generateError ? (
             <section className="construction-panel">
