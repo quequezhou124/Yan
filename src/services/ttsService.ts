@@ -150,23 +150,65 @@ function createProviderPlayer({
   let audio: HTMLAudioElement | null = null
   let activeObjectUrl: string | null = null
   let currentText: string | null = null
+  let playbackToken = 0
 
-  function cleanupObjectUrl() {
-    if (activeObjectUrl) {
-      URL.revokeObjectURL(activeObjectUrl)
-      activeObjectUrl = null
+  function describeMediaError(code?: number | null) {
+    switch (code) {
+      case MediaError.MEDIA_ERR_ABORTED:
+        return 'MEDIA_ERR_ABORTED'
+      case MediaError.MEDIA_ERR_NETWORK:
+        return 'MEDIA_ERR_NETWORK'
+      case MediaError.MEDIA_ERR_DECODE:
+        return 'MEDIA_ERR_DECODE'
+      case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        return 'MEDIA_ERR_SRC_NOT_SUPPORTED'
+      default:
+        return 'UNKNOWN_MEDIA_ERROR'
+    }
+  }
+
+  function logAudioElementError(nextAudio: HTMLAudioElement, token: number) {
+    const errorCode = nextAudio.error?.code ?? null
+
+    console.error('[tts] provider audio element error', {
+      token,
+      currentSrc: nextAudio.currentSrc,
+      networkState: nextAudio.networkState,
+      readyState: nextAudio.readyState,
+      errorCode,
+      errorName: describeMediaError(errorCode),
+    })
+  }
+
+  function detachAudioHandlers(nextAudio: HTMLAudioElement) {
+    nextAudio.onended = null
+    nextAudio.onerror = null
+  }
+
+  function cleanupAudioInstance(nextAudio: HTMLAudioElement, objectUrl: string | null) {
+    detachAudioHandlers(nextAudio)
+    nextAudio.pause()
+    nextAudio.removeAttribute('src')
+
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl)
     }
   }
 
   function stopAudio(nextState: PlaybackState = 'idle') {
+    playbackToken += 1
+
     if (audio) {
-      audio.pause()
-      audio.src = ''
-      audio.load()
+      const audioToStop = audio
+      const objectUrlToRevoke = activeObjectUrl
+
       audio = null
+      activeObjectUrl = null
+
+      cleanupAudioInstance(audioToStop, objectUrlToRevoke)
     }
 
-    cleanupObjectUrl()
+    currentText = null
     onStateChange(nextState)
   }
 
@@ -176,11 +218,17 @@ function createProviderPlayer({
         return
       }
 
-      onStateChange('loading')
       stopAudio('loading')
+      const token = playbackToken
+      onStateChange('loading')
 
       try {
         const audioBlob = await requestProviderSpeech(text, config)
+
+        if (token !== playbackToken) {
+          return
+        }
+
         const objectUrl = URL.createObjectURL(audioBlob)
         const nextAudio = new Audio(objectUrl)
 
@@ -189,25 +237,56 @@ function createProviderPlayer({
         audio = nextAudio
 
         nextAudio.onended = () => {
-          console.info('[tts] playback using provider audio')
-          stopAudio('finished')
+          if (token !== playbackToken || audio !== nextAudio) {
+            return
+          }
+
+          cleanupAudioInstance(nextAudio, objectUrl)
+          audio = null
+          activeObjectUrl = null
+          currentText = null
+          playbackToken += 1
+          console.info('[tts] provider audio playback ended')
+          onStateChange('finished')
           onPlaybackEnd()
         }
 
         nextAudio.onerror = () => {
+          if (token !== playbackToken || audio !== nextAudio) {
+            return
+          }
+
           const message = 'Provider audio playback failed in the browser.'
-          console.error('[tts] provider audio element error')
+          logAudioElementError(nextAudio, token)
+          cleanupAudioInstance(nextAudio, objectUrl)
+          audio = null
+          activeObjectUrl = null
+          currentText = null
+          playbackToken += 1
           onEngineChange('error')
           onError(message)
-          stopAudio('idle')
+          onStateChange('idle')
         }
 
         onEngineChange('provider')
-        console.info('[tts] playback using provider audio')
+        console.info('[tts] playback using provider audio', {
+          token,
+          mimeType: audioBlob.type || 'unknown',
+        })
         onPlaybackStart()
         await nextAudio.play()
+
+        if (token !== playbackToken || audio !== nextAudio) {
+          cleanupAudioInstance(nextAudio, objectUrl)
+          return
+        }
+
         onStateChange('playing')
       } catch (error) {
+        if (token === playbackToken) {
+          stopAudio('idle')
+        }
+
         const message =
           error instanceof Error ? error.message : 'Provider TTS request failed.'
 
@@ -312,5 +391,18 @@ async function requestProviderSpeech(input: string, config: TtsConfig) {
     throw new Error(body)
   }
 
-  return response.blob()
+  const responseBlob = await response.blob()
+  const responseContentType = response.headers.get('content-type')?.trim()
+  const normalizedMimeType = responseBlob.type || responseContentType || 'audio/mpeg'
+
+  console.info('[tts] provider response metadata:', {
+    contentTypeHeader: responseContentType ?? 'missing',
+    blobType: responseBlob.type || 'missing',
+    normalizedMimeType,
+    size: responseBlob.size,
+  })
+
+  return responseBlob.type === normalizedMimeType
+    ? responseBlob
+    : new Blob([responseBlob], { type: normalizedMimeType })
 }
