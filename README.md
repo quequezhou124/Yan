@@ -29,10 +29,18 @@ venv/bin/python run.py
 
 `GET /api/v1/content/<userid>/<scene>/<origin_lang>/<country>` calls Ollama to generate:
 
-- `p1`: 3 to 6 phonics or letter-combination items in the form `[ipa, letter_combo, example_word]`
+- `p1`: a fixed set of 4 phonics items selected in code from a hardcoded full English phonics catalog, returned as `[ipa, letter_combo, example_word]`
 - `p2.sentences`: 5 to 10 English scene sentences
 - `p2.tsentences`: aligned translations in `origin_lang`, localized for `country`
-- `userid` is used to remember previously generated phonics items for that learner; items seen more often are deprioritized in future generations
+- `userid` is used to remember previously generated phonics items for that learner; items seen more often are deprioritized before the LLM call, during the code-side phonics selection step
+- `scene` does not control which phonics are selected; it is only used to generate the example words and scene sentences
+
+Generation flow:
+
+1. The backend selects phonics from a hardcoded in-code full phonics catalog using only the learner's past exposure counts.
+2. The selected phonics are sent to Ollama.
+3. Ollama must keep the selected IPA and letter-combination pairs exactly as provided, and only generate the example words plus scene sentences.
+4. After a successful response, the selected phonics are written back into the learner memory store.
 
 Example request:
 
@@ -72,6 +80,10 @@ Example response:
 
 `GET /api/v1/words/<words>` converts one or more words into IPA.
 
+- It uses CMUdict locally instead of an LLM
+- If `pronouncing` is available in the environment, it can be used as a lookup helper, but the endpoint does not depend on Ollama
+- If a word is not found in CMUdict, the API returns `400`
+
 - If you pass commas, they are treated as separators: `shopping,chair`
 - If you pass spaces, they are split on whitespace: `shopping%20chair`
 - The response always returns a `words` array with `{word, ipa}` objects
@@ -87,8 +99,8 @@ Example response:
 ```json
 {
   "words": [
-    {"word": "shopping", "ipa": "/shap-ing/"},
-    {"word": "chair", "ipa": "/cher/"}
+    {"word": "shopping", "ipa": "/ʃɑpɪŋ/"},
+    {"word": "chair", "ipa": "/tʃɛr/"}
   ]
 }
 ```

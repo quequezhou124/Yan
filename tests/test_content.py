@@ -6,12 +6,13 @@ from unittest.mock import patch
 from app import create_app
 from app.content_service import ContentGenerationError, generate_content
 from app.ollama_client import OllamaConfig
+from app.phonics_catalog import select_phonics
 from app.pronunciation_service import (
     PronunciationGenerationError,
     PronunciationValidationError,
     generate_pronunciations,
 )
-from app.user_progress import UserProgressStore
+from app.user_progress import LearnedPhonics, UserProgressStore
 
 
 class FakeResponse:
@@ -28,6 +29,8 @@ class FakeResponse:
 
 
 class FakeSession:
+    RequestException = Exception
+
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = []
@@ -49,10 +52,10 @@ class ContentRouteTests(unittest.TestCase):
     @patch("app.api.generate_content")
     def test_content_route_returns_generated_payload(self, mock_generate_content):
         mock_generate_content.return_value = {
-            "p1": [["/sh/", "sh", "shop"], ["/ch/", "ch", "chair"], ["/th/", "th", "think"]],
-            "p2": {
-                "sentences": [
-                    "I walk into the shop.",
+            "p1": [["/ʃ/", "sh", "shop"], ["/tʃ/", "ch", "chair"], ["/θ/", "th", "thank"]],
+                "p2": {
+                    "sentences": [
+                        "I walk into the shop.",
                     "The chair is near the door.",
                     "I think about what to buy.",
                     "The cashier smiles at me.",
@@ -158,9 +161,10 @@ class ContentServiceTests(unittest.TestCase):
                             "content": """
                             {
                               "p1": [
-                                ["/sh/", "sh", "shop"],
-                                ["/ch/", "ch", "chair"],
-                                ["/th/", "th", "think"]
+                                ["/ʃ/", "sh", "shop"],
+                                ["/tʃ/", "ch", "chair"],
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"]
                               ],
                               "p2": {
                                 "sentences": [
@@ -202,7 +206,8 @@ class ContentServiceTests(unittest.TestCase):
 
         self.assertEqual(len(session.calls), 2)
         self.assertIn("previous response was invalid", session.calls[1]["json"]["messages"][1]["content"].lower())
-        self.assertEqual(payload["p1"][0], ["/sh/", "sh", "shop"])
+        self.assertEqual(payload["p1"][0], ["/ʃ/", "sh", "shop"])
+        self.assertEqual(payload["p1"][3], ["/ð/", "th", "this"])
         self.assertEqual(len(payload["p2"]["sentences"]), 5)
 
     def test_generate_content_returns_error_after_retry_exhaustion(self):
@@ -224,6 +229,59 @@ class ContentServiceTests(unittest.TestCase):
 
         self.assertEqual(len(session.calls), 2)
 
+    def test_generate_content_retries_when_model_changes_preselected_phonics(self):
+        session = FakeSession(
+            [
+                FakeResponse(
+                    {
+                        "message": {
+                            "content": """
+                            {
+                              "p1": [
+                                ["/g/", "g", "game"],
+                                ["/tʃ/", "ch", "chair"],
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"]
+                              ],
+                              "p2": {
+                                "sentences": ["s1", "s2", "s3", "s4", "s5"],
+                                "tsentences": ["t1", "t2", "t3", "t4", "t5"]
+                              }
+                            }
+                            """
+                        }
+                    }
+                ),
+                FakeResponse(
+                    {
+                        "message": {
+                            "content": """
+                            {
+                              "p1": [
+                                ["/ʃ/", "sh", "shop"],
+                                ["/tʃ/", "ch", "chair"],
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"]
+                              ],
+                              "p2": {
+                                "sentences": ["s1", "s2", "s3", "s4", "s5"],
+                                "tsentences": ["t1", "t2", "t3", "t4", "t5"]
+                              }
+                            }
+                            """
+                        }
+                    }
+                ),
+            ]
+        )
+
+        with patch("app.ollama_client.requests", session):
+            with patch.dict(os.environ, {"YAN_USER_PROGRESS_FILE": self.progress_path}, clear=True):
+                payload = generate_content(7, "shopping", "zh-CN", "China")
+
+        self.assertEqual(len(session.calls), 2)
+        self.assertEqual(payload["p1"][0], ["/ʃ/", "sh", "shop"])
+
     def test_generate_content_truncates_overlong_lists(self):
         session = FakeSession(
             [
@@ -233,13 +291,10 @@ class ContentServiceTests(unittest.TestCase):
                             "content": """
                             {
                               "p1": [
-                                ["/a/", "a", "apple"],
-                                ["/b/", "b", "bag"],
-                                ["/c/", "c", "card"],
-                                ["/d/", "d", "desk"],
-                                ["/e/", "e", "exit"],
-                                ["/f/", "f", "food"],
-                                ["/g/", "g", "gate"]
+                                ["/ʃ/", "sh", "shop"],
+                                ["/tʃ/", "ch", "chair"],
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"]
                               ],
                               "p2": {
                                 "sentences": [
@@ -263,7 +318,7 @@ class ContentServiceTests(unittest.TestCase):
             with patch.dict(os.environ, {"YAN_USER_PROGRESS_FILE": self.progress_path}, clear=True):
                 payload = generate_content(7, "airport", "es", "Mexico")
 
-        self.assertEqual(len(payload["p1"]), 6)
+        self.assertEqual(len(payload["p1"]), 4)
         self.assertEqual(len(payload["p2"]["sentences"]), 10)
         self.assertEqual(len(payload["p2"]["tsentences"]), 10)
 
@@ -276,9 +331,10 @@ class ContentServiceTests(unittest.TestCase):
                             "content": """
                             {
                               "p1": [
-                                ["/sh/", "sh", "shop"],
-                                ["/ch/", "ch", "chair"],
-                                ["/th/", "th", "think"]
+                                ["/ʃ/", "sh", "shop"],
+                                ["/tʃ/", "ch", "chair"],
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"]
                               ],
                               "p2": {
                                 "sentences": ["s1", "s2", "s3", "s4", "s5"],
@@ -295,9 +351,10 @@ class ContentServiceTests(unittest.TestCase):
                             "content": """
                             {
                               "p1": [
-                                ["/sh/", "sh", "shop"],
-                                ["/ch/", "ch", "chair"],
-                                ["/th/", "th", "think"]
+                                ["/ʃ/", "sh", "shop"],
+                                ["/tʃ/", "ch", "chair"],
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"]
                               ],
                               "p2": {
                                 "sentences": ["s1", "s2", "s3", "s4", "s5"],
@@ -322,23 +379,24 @@ class ContentServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             store_path = os.path.join(tmp_dir, "user_progress.json")
             store = UserProgressStore(store_path)
-            store.record_generated_phonics(7, [["/sh/", "sh", "shop"], ["/ch/", "ch", "chair"]])
-            store.record_generated_phonics(7, [["/sh/", "sh", "shirt"]])
+            store.record_generated_phonics(7, [["/ʃ/", "sh", "shop"], ["/tʃ/", "ch", "chair"]])
+            store.record_generated_phonics(7, [["/ʃ/", "sh", "shirt"]])
 
             session = FakeSession(
                 [
                     FakeResponse(
-                        {
-                            "message": {
-                                "content": """
-                                {
-                                  "p1": [
-                                    ["/th/", "th", "think"],
-                                    ["/wh/", "wh", "wheel"],
-                                    ["/br/", "br", "bread"]
-                                  ],
-                                  "p2": {
-                                    "sentences": ["s1", "s2", "s3", "s4", "s5"],
+                    {
+                        "message": {
+                            "content": """
+                            {
+                              "p1": [
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"],
+                                ["/ŋ/", "ng", "sing"],
+                                ["/f/", "ph", "phone"]
+                              ],
+                              "p2": {
+                                "sentences": ["s1", "s2", "s3", "s4", "s5"],
                                     "tsentences": ["t1", "t2", "t3", "t4", "t5"]
                                   }
                                 }
@@ -355,8 +413,12 @@ class ContentServiceTests(unittest.TestCase):
 
         prompt = session.calls[0]["json"]["messages"][1]["content"]
         self.assertIn("Previously learned phonics for this user", prompt)
-        self.assertIn("[/sh/, sh] seen 2 times", prompt)
-        self.assertIn("[/ch/, ch] seen 1 times", prompt)
+        self.assertIn("[/ʃ/, sh] seen 2 times", prompt)
+        self.assertIn("[/tʃ/, ch] seen 1 times", prompt)
+        self.assertIn('["/θ/", "th"]', prompt)
+        self.assertIn('["/ð/", "th"]', prompt)
+        self.assertIn('["/ŋ/", "ng"]', prompt)
+        self.assertNotIn('["/ʃ/", "sh"]', prompt)
 
     def test_generate_content_records_generated_phonics_per_user(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -364,17 +426,18 @@ class ContentServiceTests(unittest.TestCase):
             session = FakeSession(
                 [
                     FakeResponse(
-                        {
-                            "message": {
-                                "content": """
-                                {
-                                  "p1": [
-                                    ["/sh/", "sh", "shop"],
-                                    ["/ch/", "ch", "chair"],
-                                    ["/th/", "th", "think"]
-                                  ],
-                                  "p2": {
-                                    "sentences": ["s1", "s2", "s3", "s4", "s5"],
+                    {
+                        "message": {
+                            "content": """
+                            {
+                              "p1": [
+                                ["/ʃ/", "sh", "shop"],
+                                ["/tʃ/", "ch", "chair"],
+                                ["/θ/", "th", "thank"],
+                                ["/ð/", "th", "this"]
+                              ],
+                              "p2": {
+                                "sentences": ["s1", "s2", "s3", "s4", "s5"],
                                     "tsentences": ["t1", "t2", "t3", "t4", "t5"]
                                   }
                                 }
@@ -391,127 +454,73 @@ class ContentServiceTests(unittest.TestCase):
 
             learned_items = UserProgressStore(store_path).get_learned_phonics(99)
 
-        self.assertEqual(
+        self.assertCountEqual(
             [(item.ipa, item.letter_combo, item.count) for item in learned_items],
             [
-                ("/ch/", "ch", 1),
-                ("/sh/", "sh", 1),
-                ("/th/", "th", 1),
+                ("/ʃ/", "sh", 1),
+                ("/tʃ/", "ch", 1),
+                ("/θ/", "th", 1),
+                ("/ð/", "th", 1),
+            ],
+        )
+
+    def test_select_phonics_uses_full_catalog_and_user_history_only(self):
+        selection = select_phonics(
+            [
+                LearnedPhonics(ipa="/ʃ/", letter_combo="sh", count=2),
+                LearnedPhonics(ipa="/tʃ/", letter_combo="ch", count=1),
+            ]
+        )
+
+        self.assertEqual(
+            [(item.ipa, item.letter_combo) for item in selection],
+            [
+                ("/θ/", "th"),
+                ("/ð/", "th"),
+                ("/ŋ/", "ng"),
+                ("/f/", "ph"),
             ],
         )
 
 
 class PronunciationServiceTests(unittest.TestCase):
     def test_generate_pronunciations_returns_words_payload(self):
-        session = FakeSession(
-            [
-                FakeResponse(
-                    {
-                        "message": {
-                            "content": """
-                            {
-                              "words": [
-                                {"word": "shopping", "ipa": "/shap-ing/"},
-                                {"word": "chair", "ipa": "/cher/"}
-                              ]
-                            }
-                            """
-                        }
-                    }
-                )
-            ]
-        )
-
-        with patch("app.ollama_client.requests", session):
-            payload = generate_pronunciations("shopping,chair")
+        payload = generate_pronunciations("shopping,chair")
 
         self.assertEqual(
             payload,
             {
                 "words": [
-                    {"word": "shopping", "ipa": "/shap-ing/"},
-                    {"word": "chair", "ipa": "/cher/"},
+                    {"word": "shopping", "ipa": "/ʃɑpɪŋ/"},
+                    {"word": "chair", "ipa": "/tʃɛr/"},
                 ]
             },
         )
 
-    def test_generate_pronunciations_retries_after_invalid_json(self):
-        session = FakeSession(
-            [
-                FakeResponse({"message": {"content": "not json"}}),
-                FakeResponse(
-                    {
-                        "message": {
-                            "content": """
-                            {
-                              "words": [
-                                {"word": "shopping", "ipa": "/shap-ing/"}
-                              ]
-                            }
-                            """
-                        }
-                    }
-                ),
-            ]
+    def test_generate_pronunciations_supports_whitespace_separated_words(self):
+        payload = generate_pronunciations("this phone")
+
+        self.assertEqual(
+            payload,
+            {
+                "words": [
+                    {"word": "this", "ipa": "/ðɪs/"},
+                    {"word": "phone", "ipa": "/foʊn/"},
+                ]
+            },
         )
 
-        with patch("app.ollama_client.requests", session):
-            payload = generate_pronunciations("shopping")
+    def test_generate_pronunciations_returns_400_style_error_for_unknown_words(self):
+        with self.assertRaises(PronunciationValidationError) as exc_info:
+            generate_pronunciations("zzzznotaword")
 
-        self.assertEqual(payload["words"][0]["word"], "shopping")
-        self.assertEqual(len(session.calls), 2)
-        self.assertIn("previous response was invalid", session.calls[1]["json"]["messages"][1]["content"].lower())
+        self.assertIn("no CMU pronunciation found", str(exc_info.exception))
 
-    def test_generate_pronunciations_rejects_mismatched_word_echo(self):
-        session = FakeSession(
-            [
-                FakeResponse(
-                    {
-                        "message": {
-                            "content": """
-                            {
-                              "words": [
-                                {"word": "shop", "ipa": "/shap-ing/"}
-                              ]
-                            }
-                            """
-                        }
-                    }
-                ),
-                FakeResponse(
-                    {
-                        "message": {
-                            "content": """
-                            {
-                              "words": [
-                                {"word": "shopping", "ipa": "/shap-ing/"}
-                              ]
-                            }
-                            """
-                        }
-                    }
-                ),
-            ]
-        )
+    def test_generate_pronunciations_returns_400_style_error_for_empty_input(self):
+        with self.assertRaises(PronunciationValidationError) as exc_info:
+            generate_pronunciations("   ")
 
-        with patch("app.ollama_client.requests", session):
-            payload = generate_pronunciations("shopping")
-
-        self.assertEqual(payload["words"][0]["word"], "shopping")
-        self.assertEqual(len(session.calls), 2)
-
-    def test_generate_pronunciations_returns_error_after_retry_exhaustion(self):
-        session = FakeSession(
-            [
-                FakeResponse({"message": {"content": "{\"bad\": true}"}}),
-                FakeResponse({"message": {"content": "{\"still_bad\": true}"}}),
-            ]
-        )
-
-        with patch("app.ollama_client.requests", session):
-            with patch.dict(os.environ, {"OLLAMA_MAX_RETRIES": "1"}, clear=True):
-                with self.assertRaises(PronunciationGenerationError):
-                    generate_pronunciations("shopping")
+        self.assertEqual(str(exc_info.exception), "at least one word is required")
 
 
 if __name__ == "__main__":
