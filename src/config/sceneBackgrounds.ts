@@ -1,4 +1,6 @@
-import scenePlaceholder from '../assets/hero.png'
+import airportBackground from '../assets/airport.png'
+import irccBackground from '../assets/ircc.webp'
+import supermarketBackground from '../assets/supermarket.webp'
 
 export const SceneId = {
     Supermarket: 0,
@@ -13,13 +15,13 @@ export type SceneId = (typeof SceneId)[keyof typeof SceneId]
 // Phase 1: reuse existing local image as placeholder for built-in scenes.
 // Replace these values with dedicated scene assets in a later phase.
 export const SCENE_BACKGROUND_MAP: Record<number, string> = {
-    [SceneId.Supermarket]: scenePlaceholder,
-    [SceneId.Airport]: scenePlaceholder,
-    [SceneId.IRCC]: scenePlaceholder,
-    [SceneId.NeighborhoodMeetup]: scenePlaceholder,
+    [SceneId.Supermarket]: supermarketBackground,
+    [SceneId.Airport]: airportBackground,
+    [SceneId.IRCC]: irccBackground,
+    [SceneId.NeighborhoodMeetup]: supermarketBackground,
 }
 
-export const DEFAULT_SCENE_BG = scenePlaceholder
+export const DEFAULT_SCENE_BG = supermarketBackground
 
 export const resolveSceneBackground = (
     sceneId: number,

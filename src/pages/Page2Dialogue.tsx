@@ -18,9 +18,45 @@ import type { SentencePlayerBridgeApi } from '../types/tts'
 import { normalizeWord } from '../utils/normalizeWord'
 import '../styles/p2.css'
 
+const PAGE_TWO_STORAGE_KEY = 'yan-page-two-payload'
+
 const FALLBACK_PAYLOAD: P2Payload = {
     sentences: ['Welcome. Page 2 data was not passed from Page 1.'],
     translations: ['欢迎。第一页没有传递第二页数据。'],
+}
+
+const isP2Payload = (value: unknown): value is P2Payload => {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+
+    const payload = value as P2Payload
+    return (
+        Array.isArray(payload.sentences) &&
+        payload.sentences.every((sentence) => typeof sentence === 'string') &&
+        Array.isArray(payload.translations) &&
+        payload.translations.every(
+            (translation) => typeof translation === 'string'
+        )
+    )
+}
+
+const getStoredP2Payload = (): P2Payload | null => {
+    if (typeof window === 'undefined') {
+        return null
+    }
+
+    const serializedPayload = window.sessionStorage.getItem(PAGE_TWO_STORAGE_KEY)
+    if (!serializedPayload) {
+        return null
+    }
+
+    try {
+        const parsedPayload: unknown = JSON.parse(serializedPayload)
+        return isP2Payload(parsedPayload) ? parsedPayload : null
+    } catch {
+        return null
+    }
 }
 
 function Page2Dialogue() {
@@ -49,7 +85,7 @@ function Page2Dialogue() {
 
     const sceneId = Number.parseInt(sceneIdParam ?? '', 10)
     const routeState = (location.state ?? {}) as Page2RouteState
-    const payload = routeState.p2 ?? FALLBACK_PAYLOAD
+    const payload = routeState.p2 ?? getStoredP2Payload() ?? FALLBACK_PAYLOAD
     const normalizedSentences =
         payload.sentences.length > 0
             ? payload.sentences
